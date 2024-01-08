@@ -25,7 +25,8 @@ function Live2d() {
     #config;
     defaultConfig = {
       apiPath: "//api.zsq.im/live2d/",
-      tools: ["hitokoto", "asteroids", "switch-model", "switch-texture", "photo", "info", "quit"],
+      isTools: true,
+      tools: ["hitokoto", "switch-model", "switch-texture", "photo", "info", "quit"],
       updateTime: "2022.12.09",
       version: "1.0.1",
       tipsPath: "live2d-tips.json",
