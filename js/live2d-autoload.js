@@ -15,11 +15,6 @@ function Live2d() {
    */
   const tools = {};
 
-  /**
-   * openai
-   */
-  const openai = {};
-
   class Live2d {
     #path;
     #config;
@@ -604,21 +599,6 @@ function Live2d() {
   };
 
   /**
-   * openai 右侧小工具
-   *
-   * @param config
-   * @returns {{icon: string, callback: (function(): void)}}
-   */
-  tools.openai = function (config = {}) {
-    return {
-      icon: config["openaiIcon"] || "ph-chats-circle-fill",
-      callback: () => {
-        openai.chatWindows(config);
-      },
-    };
-  };
-
-  /**
    * Live2d 右侧一言小工具
    *
    * @param config
@@ -650,26 +630,6 @@ function Live2d() {
     return {
       icon: config["hitokotoIcon"] || "ph-chat-circle-fill",
       callback: callback,
-    };
-  };
-
-  /**
-   * 小飞船游戏
-   *
-   * @param config
-   * @returns {{icon: string, callback: callback}}
-   */
-  tools.asteroids = function (config = {}) {
-    return {
-      icon: config["asteroidsIcon"] || "ph-paper-plane-tilt-fill",
-      callback: () => {
-        if (window.Asteroids) {
-          if (!window.ASTEROIDSPLAYERS) window.ASTEROIDSPLAYERS = [];
-          window.ASTEROIDSPLAYERS.push(new Asteroids());
-        } else {
-          util.loadExternalResource(live2d.path + "lib/asteroids/asteroids.min.js", "js").finally();
-        }
-      },
     };
   };
 
@@ -765,9 +725,6 @@ function Live2d() {
     if (!Array.isArray(config.tools)) {
       config.tools = Object.keys(tools);
     }
-    if (config.isAiChat) {
-      config.tools.unshift("openai");
-    }
     // TODO 小工具样式
     for (let tool of config.tools) {
       if (tools[tool]) {
@@ -790,207 +747,6 @@ function Live2d() {
       }
     }
   };
-
-  openai.messageTimer = null;
-
-  /**
-   * 使用 openai 发送流式聊天消息
-   *
-   * @param {*} msg
-   */
-  openai.sendMessage = async function (msg, config = {}) {
-    openai.loading = true;
-    if (this.messageTimer) {
-      clearTimeout(this.messageTimer);
-      this.messageTimer = null;
-    }
-    this.messageTimer = setTimeout(() => {
-      message.showMessage("正在接收来自母星的消息，请耐心等待～", 2000, 2);
-    }, 5000);
-
-    document.getElementById("loadingIcon").style.display = "block";
-    document.getElementById("send").style.display = "none";
-
-    let historyMessages = JSON.parse(localStorage.getItem("historyMessages")) || [];
-    let userMessage = {
-      role: "user",
-      content: msg,
-    };
-    historyMessages.push(userMessage);
-
-    const controller = new AbortController();
-    const requestTimeoutId = setTimeout(() => {
-      abort();
-    }, Number(config["chunkTimeout"] || 60) * 1000);
-
-    const abort = () => {
-      controller.abort();
-      clearTimeout(this.messageTimer);
-      clearTimeout(requestTimeoutId);
-      openai.loading = false;
-      document.getElementById("loadingIcon").style.display = "none";
-      document.getElementById("send").style.display = "block";
-    };
-    const response = await fetch("/apis/api.live2d.halo.run/v1alpha1/live2d/ai/chat-process", {
-      method: "POST",
-      cache: "no-cache",
-      keepalive: true,
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-      },
-      body: JSON.stringify({
-        message: historyMessages,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        message.showMessage("请先登录！", 2000, 4);
-      } else {
-        message.showMessage("对话接口异常了哦～快去联系我的主人吧！", 5000, 4);
-      }
-      console.log("get.message.error", response);
-      abort();
-      return;
-    }
-
-    let chatMessage = {
-      content: "",
-    };
-
-    clearTimeout(this.messageTimer);
-    clearTimeout(requestTimeoutId);
-    const reader = response.body.getReader();
-    const textDecoder = new TextDecoder();
-    const chat = message.createStreamMessage(
-      Number(config["chunkTimeout"] || 60) * 1000,
-      Number(config["showChatMessageTimeout"] || 10) * 1000
-    );
-
-    document.getElementById("send").style.display = "block";
-    document.getElementById("loadingIcon").style.display = "none";
-    openai.loading = false;
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) {
-        break;
-      }
-      let text = textDecoder.decode(value);
-      const textArrays = text.split("\n\n");
-      textArrays.forEach((decoder) => {
-        if (!decoder) return;
-        if (decoder.startsWith("data:")) {
-          let dataIndex = decoder.indexOf("data:");
-          if (dataIndex !== -1) {
-            decoder = decoder.substring(dataIndex + 5);
-          }
-        }
-        const chatResult = JSON.parse(decoder);
-        const { text, status } = chatResult;
-        try {
-          if (status === 200) {
-            chatMessage.role = "assistant";
-            if (text === "[DONE]") {
-              historyMessages.push(chatMessage);
-              localStorage.setItem("historyMessages", JSON.stringify(historyMessages));
-              chat.stop();
-            } else {
-              chatMessage.content += text;
-              chat.sendMessage(text);
-            }
-          } else {
-            throw new Error(text);
-          }
-        } catch (e) {
-          console.error("[Request] parse error", text);
-          chat.sendMessage(`聊天接口出现异常了：${text}`);
-        }
-      });
-    }
-  };
-
-  openai.loading = false;
-
-  /**
-   * 创建 chat 聊天窗口
-   *
-   * @param {*} config
-   */
-  openai.chatWindows = function (config = {}) {
-    let model = document.getElementById("live2d-chat-model");
-    if (model) {
-      if (model.classList.contains("live2d-chat-model-active")) {
-        model.classList.remove("live2d-chat-model-active");
-      } else {
-        let input = document.getElementById("live2d-chat-input");
-        model.classList.add("live2d-chat-model-active");
-        input.focus();
-      }
-      return;
-    }
-    document.body.insertAdjacentHTML(
-      "beforeend",
-      `<div id="live2d-chat-model">
-        <div class="live2d-chat-model-body">
-           <div class="live2d-chat-content">
-             <input id="live2d-chat-input" type="text" required autofocus="autofocus" />
-           </div>
-           <span id="live2d-chat-send">
-             <i class="iconify" id="send" data-icon="mingcute:send-plane-fill" data-width="20" data-height="20" style="color: white;"></i>
-             <i class="iconify" id="loadingIcon" data-icon="line-md:loading-twotone-loop" data-width="20" data-height="20" style="color: white; display: none;"></i>
-           </span>
-        </div>
-      </div>`
-    );
-
-    model = document.getElementById("live2d-chat-model");
-    let send = document.getElementById("live2d-chat-send");
-    let input = document.getElementById("live2d-chat-input");
-
-    const sendFun = function () {
-      let message = input.value;
-      if (message.length > 0 && !openai.loading) {
-        input.value = "";
-        send.classList.remove("active");
-        send.setAttribute("disabled", "disabled");
-        openai.sendMessage(message, config);
-      }
-    };
-
-    input.addEventListener("input", (e) => {
-      let message = input.value;
-      if (message.length > 0 && !openai.loading) {
-        send.classList.add("active");
-        send.removeAttribute("disabled");
-      } else {
-        send.classList.remove("active");
-        send.setAttribute("disabled", "disabled");
-      }
-    });
-
-    send.addEventListener("click", () => {
-      sendFun();
-    });
-
-    input.addEventListener("keydown", (e) => {
-      var keyNum = window.event ? e.keyCode : e.which;
-      if (keyNum == 13) {
-        sendFun();
-      }
-      if (keyNum == 27) {
-        model.classList.remove("live2d-chat-model-active");
-      }
-    });
-
-    input.addEventListener("focus", () => {
-      message.showMessage("按下回车键可以快速发送消息哦", 2000, 1);
-    });
-
-    model.classList.add("live2d-chat-model-active");
-  };
-
   window.onload = function () {
     localStorage.removeItem("historyMessages");
   };
