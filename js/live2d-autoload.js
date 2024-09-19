@@ -19,7 +19,7 @@ function Live2d() {
     #path;
     #config;
     defaultConfig = {
-      apiPath: "//live2d.wh1te.top/",
+      apiPath: "https://live2d.wh1te.top/",
       isTools: true,
       tools: ["hitokoto", "switch-model", "switch-texture", "photo", "info", "quit"],
       updateTime: "2022.12.09",
